@@ -1,0 +1,11 @@
+
+
+***Copy the new code***
+
+
+Focus in the directory exploration_policies/toy_v1/.
+I've copied the code from exploration_policies/toy_v0/ there.
+
+I want you to change it in the following ways:
+
+* Add actions.

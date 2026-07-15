@@ -1,0 +1,56 @@
+Focus in the directory exploration_policies/toy_v0/.
+
+I want to build models that do unsupervised learning.
+
+To start, I want to build a few tasks.  Each task should be a timeseries of
+vectors.
+
+Here are the tasks I want:
+
+1. Binary noise.  Random Bernoulli noise, independent every timestep.  The vector
+length and probability should be parameters.  There should also be a parameter for
+the probability of resampling each timestep, default to 1.
+
+2. Drift.  The vector drifts to the right, i.e. each timestep the rightmost element
+is lost, a new element enters on the left, and all other elements slide over.
+The new elements are Bernoulli samples.  Vector length and probability are parameters.
+
+3. Gaussian process over space and time.  The vector is analog in [0, 1].  The
+correlation over space is determined by a Gaussian process.  The correlation over
+time is also determined by a Gaussian process.  The temperature for each of these
+processes are parameters.
+
+Implement these tasks and also implement a jupyter notebook that demos the tasks.
+
+
+Stay in the directory exploration_policies/toy_v0/.
+
+First, move the task demo notebook to the tasks/ directory and remove the
+notebooks/ directory.
+
+Then start building models.  To begin, I want to build a model that predicts the
+next timestep stimulus, using an RNN with timeconstant tau.
+I want the latent state of the RNN to update like this:
+h(t + 1) = tau * h(t) + tanh((1 - tau) * encoder(h(t) + noise, input(t)))
+I want the initial state h(0) to be tanh(initializer(input(0))).
+I want the stddev of the noise to be a parameter of the model, and used only during
+training (not evaluation).
+Train with an L1 loss.
+
+After you implement this model, implement a notebook that trains this model on
+a task (allow me to choose the task with a flag at the top of the notebook) and
+plot visualizations of the model's predictions, the ground truth input, and the
+latent space activity over time.
+
+
+I want to improve the state initialization looks like it's not great.  Currently
+it's just a linear layer.  I want the state initialization for all layers to be
+produced by MLPs that take in the first 2 steps of the stimulus.  Specifically,
+for each layer, I want an MLP that takes in the first 2 steps of the stimulus and
+the state initialization of the layer below (unless this is the lowest layer), and
+outputs a state initialization for the current layer.  I want a parameter in the
+model called `initializer_hidden_sizes` that's a list of hidden sizes.  I want the
+tanh to be applied to each of these initial states.
+
+
+
