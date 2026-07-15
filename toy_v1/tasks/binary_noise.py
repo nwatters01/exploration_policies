@@ -17,16 +17,16 @@ class BinaryNoiseTask(Task):
         super().__init__(vector_length)
         self.prob = prob
         self.resample_prob = resample_prob
-        self._current = None
 
-    def reset(self, seed=None):
-        super().reset(seed=seed)
-        self._current = self._rng.binomial(1, self.prob, size=self.vector_length).astype(np.float64)
+    def _sample_fill(self):
+        return float(self._rng.binomial(1, self.prob))
 
-    def step(self):
+    def _advance(self):
         if self._current is None:
-            self.reset()
+            self._current = self._rng.binomial(
+                1, self.prob, size=self.vector_length).astype(np.float64)
+            return self._current
         resample_mask = self._rng.random(self.vector_length) < self.resample_prob
         resampled = self._rng.binomial(1, self.prob, size=self.vector_length).astype(np.float64)
         self._current = np.where(resample_mask, resampled, self._current)
-        return self._current.copy()
+        return self._current

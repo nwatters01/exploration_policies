@@ -20,9 +20,11 @@ class GaussianProcessTask(Task):
     using the standard Gaussian-process regression update, then squashed
     elementwise through a logistic sigmoid to land in [0, 1].
 
-    Note: step() recomputes a (t x t) solve against the full time history,
+    Note: _advance() recomputes a (t x t) solve against the full time history,
     so this is O(num_steps^3) overall -- fine for toy-scale horizons, not
-    optimized for long sequences.
+    optimized for long sequences. The field is resampled from the latent history
+    each step, so a left/right action shifts the current observation but does not
+    persist into the (latent) history.
     """
 
     def __init__(self, vector_length, spatial_temperature=1.0, temporal_temperature=1.0, jitter=1e-6):
@@ -46,7 +48,11 @@ class GaussianProcessTask(Task):
         self._times = np.zeros((0,), dtype=np.float64)
         self._history = np.zeros((0, self.vector_length), dtype=np.float64)
 
-    def step(self):
+    def _sample_fill(self):
+        # A fresh draw from the marginal: sigmoid of a standard normal, in [0, 1].
+        return float(1.0 / (1.0 + np.exp(-self._rng.standard_normal())))
+
+    def _advance(self):
         if self._history is None:
             self.reset()
 
@@ -72,4 +78,5 @@ class GaussianProcessTask(Task):
         self._history = np.concatenate([self._history, latent[None, :]], axis=0)
         self._t += 1
 
-        return 1.0 / (1.0 + np.exp(-latent))
+        self._current = 1.0 / (1.0 + np.exp(-latent))
+        return self._current
