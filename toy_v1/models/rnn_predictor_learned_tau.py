@@ -12,7 +12,15 @@ With the (1 - tau) convention, ``tau -> 0`` means slow, persistent dynamics.
 An L1 regularizer on the mean tau (weighted by ``tau_reg_coeff``, optionally
 per-layer) is added to the loss, so the model prefers slow dynamics unless faster
 updating helps prediction.
+
+Each layer's **decoder weights are modulated by the action**: a per-layer action
+embedding produces coefficients over a learned basis of weight modulations, so the
+readout applies a different linear map per action. This lets the model predict
+action-dependent shifts of its input (which an additive action term cannot do,
+since a shift is a permutation gated by the action).
 """
+
+import math
 
 import torch
 import torch.nn as nn
@@ -25,14 +33,15 @@ class LearnedTauPredictiveRNNLayer(nn.Module):
     """One predictive layer with a learned, per-unit, per-timestep ``tau``."""
 
     def __init__(self, input_dim, hidden_dim, stimulus_dim, below_dim,
-                 action_dim=0, initializer_hidden_sizes=(), noise_std=0.1,
-                 decoder_scale=1.0):
+                 action_dim=0, action_embed_dim=8, initializer_hidden_sizes=(),
+                 noise_std=0.1, decoder_scale=1.0):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.stimulus_dim = stimulus_dim
         self.below_dim = below_dim
         self.action_dim = action_dim
+        self.action_embed_dim = action_embed_dim
         self.noise_std = float(noise_std)
         self.decoder_scale = float(decoder_scale)
 
@@ -41,7 +50,22 @@ class LearnedTauPredictiveRNNLayer(nn.Module):
         # Encoder produces the drive; tau_encoder produces the per-unit timeconstant.
         self.encoder = nn.Linear(hidden_dim + input_dim + action_dim, hidden_dim)
         self.tau_encoder = nn.Linear(hidden_dim + input_dim + action_dim, hidden_dim)
-        self.decoder = nn.Linear(hidden_dim + input_dim, input_dim)
+
+        # Decoder reads out from the current latent and the previous input. Its
+        # weight matrix is *modulated by the action*: a per-layer action embedding
+        # gives coefficients over a learned basis of weight modulations, so
+        # W_dec(action) = dec_weight + sum_k embed(action)_k * dec_weight_mod[k].
+        # `none` (all-zeros one-hot) -> base weights; left/right add corrections.
+        dec_in = hidden_dim + input_dim
+        self.dec_weight = nn.Parameter(torch.empty(input_dim, dec_in))
+        nn.init.kaiming_uniform_(self.dec_weight, a=math.sqrt(5))
+        self.dec_bias = nn.Parameter(torch.zeros(input_dim))
+        if action_dim > 0 and action_embed_dim > 0:
+            self.action_embed = nn.Linear(action_dim, action_embed_dim, bias=False)
+            self.dec_weight_mod = nn.Parameter(torch.zeros(action_embed_dim, input_dim, dec_in))
+        else:
+            self.action_embed = None
+            self.dec_weight_mod = None
 
     def init_state(self, stimulus_first2, below_state):
         if below_state is None:
@@ -62,8 +86,17 @@ class LearnedTauPredictiveRNNLayer(nn.Module):
         h_next = (1.0 - tau) * h + tau * torch.tanh(pre)
         return h_next, tau
 
-    def _decode(self, h_next, x_prev):
-        return self.decoder_scale * torch.tanh(self.decoder(torch.cat([h_next, x_prev], dim=-1)))
+    def _decode(self, h_next, x_prev, a_t):
+        """Decode a prediction; the decoder weights are modulated by the action ``a_t``."""
+        feat = torch.cat([h_next, x_prev], dim=-1)                       # (B, dec_in)
+        if self.action_embed is not None and a_t is not None:
+            embed = self.action_embed(a_t)                              # (B, action_embed_dim)
+            weight = self.dec_weight + torch.einsum(
+                'bk,koi->boi', embed, self.dec_weight_mod)              # (B, out, in)
+            out = torch.einsum('boi,bi->bo', weight, feat) + self.dec_bias
+        else:
+            out = feat @ self.dec_weight.t() + self.dec_bias
+        return self.decoder_scale * torch.tanh(out)
 
     def forward(self, x, actions, h0):
         """Run the layer. Returns (predictions, hidden, taus).
@@ -81,7 +114,7 @@ class LearnedTauPredictiveRNNLayer(nn.Module):
             h, tau = self._step(h, x_t, a_t)
             hiddens.append(h)
             taus.append(tau)
-            predictions.append(self._decode(h, x_t))
+            predictions.append(self._decode(h, x_t, a_t))
         return (torch.stack(predictions, dim=1),
                 torch.stack(hiddens, dim=1),
                 torch.stack(taus, dim=1))
@@ -101,8 +134,9 @@ class LearnedTauStackedRNNPredictor(nn.Module):
     ``tau_reg_coeff`` may be a single value (shared) or a per-layer list.
     """
 
-    def __init__(self, input_dim, hidden_dims, action_dim=0, initializer_hidden_sizes=(64,),
-                 noise_std=0.1, decoder_scale=1.0, tau_reg_coeff=0.0):
+    def __init__(self, input_dim, hidden_dims, action_dim=0, action_embed_dim=8,
+                 initializer_hidden_sizes=(64,), noise_std=0.1, decoder_scale=1.0,
+                 tau_reg_coeff=0.0):
         super().__init__()
         hidden_dims = list(hidden_dims)
         num_layers = len(hidden_dims)
@@ -125,6 +159,7 @@ class LearnedTauStackedRNNPredictor(nn.Module):
             layers.append(LearnedTauPredictiveRNNLayer(
                 input_dim=layer_input_dim, hidden_dim=hidden_dims[i],
                 stimulus_dim=input_dim, below_dim=below_dim, action_dim=action_dim,
+                action_embed_dim=action_embed_dim,
                 initializer_hidden_sizes=self.initializer_hidden_sizes,
                 noise_std=noise_stds[i], decoder_scale=decoder_scales[i]))
             layer_input_dim = hidden_dims[i]

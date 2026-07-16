@@ -42,6 +42,26 @@ The one detail to notice — highlighted in red above — is that the **decoder 
 the previous `input(t)` directly**, alongside the current latent `h(t+1)`. That
 "skip" connection is the key to the puzzle below.
 
+### Action-modulated decoder weights
+
+The decoder's weight matrix is **modulated by the action**. Each layer has an
+action embedding that produces coefficients over a learned basis of weight
+modulations, so the readout applies a *different linear map per action*:
+
+```
+W_dec(action) = dec_weight + sum_k  embed(action)_k * dec_weight_mod[k]
+```
+
+`none` (all-zeros one-hot) uses the base weights; `left` / `right` add their own
+corrections. This matters because a left/right shift is a **permutation of the
+input gated by the action** — a multiplicative interaction that a plain
+`decoder(h(t+1), input(t))` (which only sees the action *additively*, via the
+latent) cannot represent. With the action feeding it additively, the decoder
+learns only the always-present drift shift and gets the action-conditioned re-shift
+wrong at action steps; modulating the weights lets it pick the right permutation.
+Empirically this drops the layer-0 error *at action steps* from ~0.33 to ~0.04
+(roughly the non-action level).
+
 ---
 
 ## How can a layer's prediction be fast while its latent is (almost) frozen?
@@ -81,3 +101,28 @@ stripes, yet the prediction (row 4) is as lively as the input (row 1):
 Measured on this trial: the layer-1 **latent** changes by only ~0.0006 per step,
 while its **input** changes by ~0.04 per step (about 70× faster) — and the
 prediction tracks the input, not the latent.
+
+---
+
+## Next steps
+
+Where this model is headed next:
+
+1. **A task with long-range interaction.** The current tasks are essentially
+   local (drift moves a bit, noise is per-cell, bifurcate is symmetric). Build a
+   task whose next-step structure depends on **distant** parts of the vector — so
+   predicting it *requires* integrating information across the whole field, not
+   just a local neighbourhood.
+
+2. **Make each layer local.** Restrict each layer's encoder/decoder to a **local
+   receptive field** (e.g. a local convolution, as in `toy_v2`) instead of the
+   current fully-connected maps. A single local layer then *cannot* see the
+   long-range structure — so capturing it must be forced up through the
+   **hierarchy**, where stacked local layers grow an effectively larger receptive
+   field. This tests whether the predictive-coding stack learns to represent
+   long-range dependencies *compositionally*.
+
+3. **Scale up.** With local layers and a long-range task in place, scale the model
+   — deeper stacks, wider layers, longer/larger stimuli — and study how much depth
+   is needed to span a given interaction range, and how the learned `tau` and the
+   action modulation behave at scale.
