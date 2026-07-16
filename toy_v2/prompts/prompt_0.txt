@@ -1,0 +1,73 @@
+Focus in the directory exploration_policies/toy_v2/.
+I've copied the code from exploration_policies/toy_v1/ there.
+
+I want you to change it in the following ways:
+
+* Remove actions from the tasks.
+
+* Only keep the drifting task --- remove the others.  Update the task demo
+notebook accordingly.
+
+* Add test conditions to the task that do the following:
+- Stop the drift, so the stimulus is static
+- Switch the drift direction
+- Sample random Bernoulli noise
+Make these changes happen halfway through the trial.  Show them in the demo
+notebook.
+
+Don't worry about the models now --- I'll tell you how to change those after.
+
+
+Now focus on the model.  I want to completely change it.  Here's how I want the
+model to work:
+
+* An input layer of neurons, of shape [n_input, 2].  There are two kinds of input neurons:
+- Neurons who's rate is the input stimulus
+- Neurons who's rate is 1 minus the input stimulus
+
+* One hidden layer of neurons, of shape [n_input, n_channels].  I want local
+convolution weights from the inputs and local convolutional recurrent weights
+from hiddens to hiddens.
+
+More details:
+
+Inputs to hiddens:
+- Initialised randomly in [0, 1]
+- At every step, the output weights from each input neuron are non-negative and
+scaled to sum to a hyperparameter.
+- At every step, the input -> hidden weights are multiplicatively scaled in
+proportion to the correlation of the pre-synaptic and post-synaptic unit.  Each
+unit maintains a running estimate of its mean firing rate so these correlations
+can be computed.
+
+Recurrent connections:
+- Same as inputs to hiddens (initialized randomly, nonnegative, modified by
+correlation), but with a different normalization hyperparameter.
+
+Hidden activity:
+- h(t+1) = tau * h(t) + (1 - tau) * sigmoid(W_in * I + W_h * h)
+
+Implement this model and write a demo script to plot the input and hidden
+activities over time for the drift task, both before and after training.
+Also, include a nice schematic/visualization of the model architecture and the
+learning rule.
+
+Note that there's no gradients here, so no need for pytorch.  You can do
+everything using numpy.
+
+
+A couple changes:
+
+* I want the Hebbian learning rule to be additive, not multiplicative.  Namely,
+add a delta to the weight based on the rate correlation, instead of scaling the
+weight.
+
+* Some neurons are silent.  I don't want this.  I want to specify a mean rate
+(a hyperparameter), and I want all neurons to adapt the slope of their activation
+function to maining this mean rate.
+
+
+Also I want the weight decay to also serve as weight growth --- I want all weights
+to be pushed towards the mean weight, proportionally to how far from the mean they
+are.  This mean should be computed on a per-neuron basis, namely the mean output
+weight for that neuron.
