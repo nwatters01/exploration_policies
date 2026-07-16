@@ -21,10 +21,11 @@ class GaussianProcessTask(Task):
     elementwise through a logistic sigmoid to land in [0, 1].
 
     Note: _advance() recomputes a (t x t) solve against the full time history,
-    so this is O(num_steps^3) overall -- fine for toy-scale horizons, not
-    optimized for long sequences. The field is resampled from the latent history
-    each step, so a left/right action shifts the current observation but does not
-    persist into the (latent) history.
+    so this is O(num_steps^3) overall -- fine for toy-scale horizons.
+
+    Test mode: at the midpoint the spatial and temporal frequencies **double**
+    (both lengthscales are halved), so the field starts wiggling faster in space
+    and time.
     """
 
     def __init__(self, vector_length, spatial_temperature=1.0, temporal_temperature=1.0, jitter=1e-6):
@@ -33,14 +34,19 @@ class GaussianProcessTask(Task):
         self.temporal_temperature = temporal_temperature
         self.jitter = jitter
 
-        positions = np.arange(vector_length, dtype=np.float64)
-        spatial_cov = _rbf_kernel(positions, positions, spatial_temperature)
-        spatial_cov += jitter * np.eye(vector_length)
-        self._spatial_chol = cholesky(spatial_cov, lower=True)
+        self._positions = np.arange(vector_length, dtype=np.float64)
+        # Spatial Choleskys for the normal and the (halved-lengthscale) test regime.
+        self._spatial_chol = self._build_spatial_chol(spatial_temperature)
+        self._spatial_chol_test = self._build_spatial_chol(spatial_temperature / 2.0)
 
         self._t = 0
         self._times = None
         self._history = None
+
+    def _build_spatial_chol(self, temperature):
+        cov = _rbf_kernel(self._positions, self._positions, temperature)
+        cov += self.jitter * np.eye(self.vector_length)
+        return cholesky(cov, lower=True)
 
     def reset(self, seed=None):
         super().reset(seed=seed)
@@ -56,6 +62,10 @@ class GaussianProcessTask(Task):
         if self._history is None:
             self.reset()
 
+        test = self._test_active()
+        temporal_temp = self.temporal_temperature / 2.0 if test else self.temporal_temperature
+        spatial_chol = self._spatial_chol_test if test else self._spatial_chol
+
         t_new = np.array([float(self._t)])
         n_hist = self._times.shape[0]
 
@@ -63,16 +73,16 @@ class GaussianProcessTask(Task):
             mean = np.zeros(self.vector_length)
             var = 1.0
         else:
-            k_hist = _rbf_kernel(self._times, self._times, self.temporal_temperature)
+            k_hist = _rbf_kernel(self._times, self._times, temporal_temp)
             k_hist += self.jitter * np.eye(n_hist)
-            k_row = _rbf_kernel(t_new, self._times, self.temporal_temperature)[0]
+            k_row = _rbf_kernel(t_new, self._times, temporal_temp)[0]
 
             weights = np.linalg.solve(k_hist, k_row)
             mean = weights @ self._history
             var = max(1.0 - k_row @ weights, self.jitter)
 
         z = self._rng.standard_normal(self.vector_length)
-        latent = mean + np.sqrt(var) * (self._spatial_chol @ z)
+        latent = mean + np.sqrt(var) * (spatial_chol @ z)
 
         self._times = np.concatenate([self._times, t_new])
         self._history = np.concatenate([self._history, latent[None, :]], axis=0)

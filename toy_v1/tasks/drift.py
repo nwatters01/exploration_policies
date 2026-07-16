@@ -12,6 +12,9 @@ class DriftTask(Task):
 
     Because the drift carries ``self._current`` forward, a ``left`` action can
     counteract the intrinsic rightward drift (and ``right`` compounds it).
+
+    Test mode: the drift direction **reverses** (rightward -> leftward) at the
+    midpoint of the trial.
     """
 
     def __init__(self, vector_length, prob=0.5):
@@ -27,5 +30,8 @@ class DriftTask(Task):
                 1, self.prob, size=self.vector_length).astype(np.float64)
             return self._current
         new_element = float(self._rng.binomial(1, self.prob))
-        self._current = np.concatenate(([new_element], self._current[:-1]))
+        if self._test_active():  # drift left: drop leftmost, shift left, new on the right
+            self._current = np.concatenate((self._current[1:], [new_element]))
+        else:                    # drift right: new on the left, drop rightmost
+            self._current = np.concatenate(([new_element], self._current[:-1]))
         return self._current

@@ -1,0 +1,36 @@
+I want to do the following things:
+
+* Switch tau to be 1 - tau, so tau near zero is slow dynamics.
+
+* Make a version of the model (in a new file) that learns the time constant tau.
+Specifically, I want tau to be a vector (with length the number of units) at each
+timestep, and I want there to be an L1 loss term regularizing the mean tau.  Make
+sure tau is in [0, 1] (e.g. apply a sigmoid to it).  I want the weight of the tau
+regularizer to be a coefficient, and I want to allow a different coefficient per
+layer (optionally, if the parameter is a list).
+
+* Add a visualization of tau to the plots in train_rnn_predictor.ipynb, and make
+it use the new model.
+
+* Rename modes/train_rnn_predictor.ipynb to demo_actions.ipynb.
+
+* Make a notebook models/demo_no_actions.ipynb that makes the policy take no actions.
+However, evaluate the model on test conditions that are out of distribution.
+For the drift model, I want the test to switch drift directions in the middle
+of the trial.  For the Gaussian process model, I want the test to double the
+spatial and temporal frequency in the middle of the trial.  For the noise task,
+I want the test to change the Bernoulli probability in the middle of the trial.
+Visualize these test conditions (along with training examples) in a notebook
+tasks/demo_task_tests.ipynb.  Plot the model on training and test stimuli in
+demo_no_actions.ipynb.
+
+* Introduce a new task called bifurcate.py.  I want trials of this task to start
+full zero, but make ones start from the edges, shrinking an interval of zeros
+in the middle of the stimulus vector.  On the step where the last zero disappeears,
+I want with probability 0.5 the right half of the stimulus to become ones and the
+left half zeros, and with probability 0.5 the left have to become ones and the
+right half zeros.  Add this task to the demos.  For the test case, when the last
+zero disappears make the whole stimulus either zero or one (each with probability
+0.5).  Also update the model demo notebooks to allow me to train on this 
+bifurcating task.
+

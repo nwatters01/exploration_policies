@@ -1,6 +1,7 @@
 from . import actions
 from .actions import ACTION_DIM, ACTION_NAMES, ACTIONS, LEFT, NONE, RIGHT
 from .base import Task
+from .bifurcate import BifurcateTask
 from .binary_noise import BinaryNoiseTask
 from .drift import DriftTask
 from .gaussian_process import GaussianProcessTask
@@ -12,6 +13,7 @@ __all__ = [
     "BinaryNoiseTask",
     "DriftTask",
     "GaussianProcessTask",
+    "BifurcateTask",
     "Policy",
     "RandomShiftPolicy",
     "rollout",

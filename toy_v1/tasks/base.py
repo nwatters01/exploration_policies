@@ -15,18 +15,35 @@ class Task(ABC):
     from ``_sample_fill`` (do-nothing leaves it untouched). The shift is applied
     to ``self._current``, so for tasks whose dynamics carry that state forward
     (e.g. drift) the effect of an action persists into subsequent steps.
+
+    Tasks also support a **test mode**: calling ``generate(..., test=True)`` runs
+    an out-of-distribution variant in which the task's dynamics change partway
+    through the trial (by default at the midpoint). ``_test_active()`` tells a
+    task's ``_advance`` whether the test change is in effect on the current step;
+    each task defines what the change is.
     """
 
     def __init__(self, vector_length):
         self.vector_length = vector_length
         self._rng = np.random.default_rng()
         self._current = None
+        self._step_count = 0
+        self._test = False
+        self._switch_step = None
 
     def reset(self, seed=None):
         """Reset internal state, optionally reseeding the RNG."""
         if seed is not None:
             self._rng = np.random.default_rng(seed)
         self._current = None
+        self._step_count = 0
+        self._test = False
+        self._switch_step = None
+
+    def _test_active(self):
+        """True if the test-mode change is in effect on the current step."""
+        return (self._test and self._switch_step is not None
+                and self._step_count >= self._switch_step)
 
     @abstractmethod
     def _advance(self):
@@ -41,9 +58,16 @@ class Task(ABC):
         self._advance()
         if action != NONE:
             self._current = apply_shift(self._current, action, self._sample_fill())
+        self._step_count += 1
         return self._current.copy()
 
-    def generate(self, num_steps, seed=None):
-        """Generate a full action-free timeseries, shape (num_steps, vector_length)."""
+    def generate(self, num_steps, seed=None, test=False):
+        """Generate a full action-free timeseries, shape (num_steps, vector_length).
+
+        If ``test`` is True, the task switches to its out-of-distribution test
+        variant at the midpoint (``num_steps // 2``).
+        """
         self.reset(seed=seed)
+        self._test = test
+        self._switch_step = num_steps // 2
         return np.stack([self.step() for _ in range(num_steps)], axis=0)

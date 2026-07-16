@@ -25,7 +25,7 @@ class PredictiveRNNLayer(nn.Module):
     conditioned on the action taken at that timestep (a one-hot code over the
     shift actions; do-nothing is all zeros):
 
-        h(t + 1) = tau * h(t) + tanh((1 - tau) * encoder(h(t) + noise, input(t), action(t)))
+        h(t + 1) = (1 - tau) * h(t) + tanh(tau * encoder(h(t) + noise, input(t), action(t)))
 
     where ``noise`` is zero-mean Gaussian with standard deviation ``noise_std``,
     injected into the recurrence *only during training*. Since ``action(t)``
@@ -41,12 +41,12 @@ class PredictiveRNNLayer(nn.Module):
     it is not derived from this layer's own input, so ``forward`` takes h(0)
     as an argument.
 
-    ``tau`` is a fixed timeconstant in [0, 1]; larger values give slower,
-    more persistent latent dynamics.
+    ``tau`` is a fixed timeconstant in [0, 1]; **smaller** values give slower,
+    more persistent latent dynamics (tau -> 0 means h barely changes).
     """
 
     def __init__(self, input_dim, hidden_dim, stimulus_dim, below_dim,
-                 action_dim=0, initializer_hidden_sizes=(), tau=0.9, noise_std=0.1,
+                 action_dim=0, initializer_hidden_sizes=(), tau=0.1, noise_std=0.1,
                  decoder_scale=1.0):
         super().__init__()
         if not 0.0 <= tau <= 1.0:
@@ -91,7 +91,7 @@ class PredictiveRNNLayer(nn.Module):
             noisy_h = h + self.noise_std * torch.randn_like(h)
         parts = [noisy_h, x_t] if a_t is None else [noisy_h, x_t, a_t]
         pre = self.encoder(torch.cat(parts, dim=-1))
-        return self.tau * h + torch.tanh((1.0 - self.tau) * pre)
+        return (1.0 - self.tau) * h + self.tau * torch.tanh(pre)
 
     def _decode(self, h_next, x_prev):
         """Read out a prediction from the current latent and the previous input."""
@@ -173,7 +173,7 @@ class StackedRNNPredictor(nn.Module):
     """
 
     def __init__(self, input_dim, hidden_dims, action_dim=0, initializer_hidden_sizes=(64,),
-                 tau=0.9, noise_std=0.1, decoder_scale=1.0):
+                 tau=0.1, noise_std=0.1, decoder_scale=1.0):
         super().__init__()
         hidden_dims = list(hidden_dims)
         num_layers = len(hidden_dims)
